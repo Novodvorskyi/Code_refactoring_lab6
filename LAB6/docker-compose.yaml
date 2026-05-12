@@ -1,0 +1,62 @@
+version: "3.9"
+
+services:
+  #  MongoDB
+  mongo:
+    image: mongo:7.0
+    container_name: mongo
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:-admin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-secret}
+      MONGO_INITDB_DATABASE: ${DB_NAME:-taskdb}
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  #  Flask App
+  app:
+    build:
+      context: .
+      target: production
+    container_name: flask_app
+    restart: unless-stopped
+    depends_on:
+      mongo:
+        condition: service_healthy
+    environment:
+      MONGO_URI: mongodb://${MONGO_USER:-admin}:${MONGO_PASSWORD:-secret}@mongo:27017/${DB_NAME:-taskdb}?authSource=admin
+      DB_NAME: ${DB_NAME:-taskdb}
+      PORT: ${PORT:-5000}
+      FLASK_DEBUG: ${FLASK_DEBUG:-false}
+    ports:
+      - "${PORT:-5000}:5000"
+    volumes:
+      - .:/app   # hot-reload during development
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  #  Tests
+  tests:
+    build:
+      context: .
+      target: test
+    container_name: flask_tests
+    environment:
+      MONGO_URI: mongodb://${MONGO_USER:-admin}:${MONGO_PASSWORD:-secret}@mongo:27017/${DB_NAME:-taskdb}?authSource=admin
+      DB_NAME: ${DB_NAME:-taskdb}
+    profiles:
+      - testing
+
+volumes:
+  mongo_data:
